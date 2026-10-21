@@ -1,0 +1,192 @@
+{
+  "name": "01 - Entrada WhatsApp (formato Meta)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp",
+        "options": {}
+      },
+      "id": "n1",
+      "name": "Webhook WhatsApp",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "9f2c1a6e-0b57-4c1e-9d3a-4a7b2c5e8f10"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst body = raw.body ?? raw;\nconst out = [];\nfor (const entry of body.entry ?? []) {\n  for (const change of entry.changes ?? []) {\n    const value = change.value ?? {};\n    for (const m of value.messages ?? []) {\n      out.push({ json: {\n        message_id: m.id,\n        usuario: m.from,\n        tipo: m.type,\n        texto: m.type === 'text' ? (m.text?.body ?? '') : '',\n        timestamp: m.timestamp ?? null,\n        nome: value.contacts?.[0]?.profile?.name ?? null,\n      }});\n    }\n  }\n}\nreturn out;"
+      },
+      "id": "n2",
+      "name": "Normalizar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO processed_messages (message_id, usuario, texto)\nVALUES ($1, $2, $3)\nON CONFLICT (message_id) DO NOTHING\nRETURNING message_id;",
+        "options": {
+          "queryReplacement": "={{ [$json.message_id, $json.usuario, $json.texto] }}"
+        }
+      },
+      "id": "n3",
+      "name": "Registrar mensagem (idempotência)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "usuario",
+              "value": "={{ $('Normalizar').item.json.usuario }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "message_id",
+              "value": "={{ $('Normalizar').item.json.message_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "texto",
+              "value": "={{ $('Normalizar').item.json.texto }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n4",
+      "name": "Mensagem pronta para o agente",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b1",
+              "name": "usuario",
+              "value": "={{ $json.usuario }}",
+              "type": "string"
+            },
+            {
+              "id": "b2",
+              "name": "resposta",
+              "value": "=Recebi: {{ $json.texto }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n5",
+      "name": "Resposta de teste (trocar pelo agente)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO outbox (usuario, texto) VALUES ($1, $2);",
+        "options": {
+          "queryReplacement": "={{ [$json.usuario, $json.resposta] }}"
+        }
+      },
+      "id": "n6",
+      "name": "Saída (trocar por WhatsApp Business Cloud)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1200,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Normalizar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar": {
+      "main": [
+        [
+          {
+            "node": "Registrar mensagem (idempotência)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar mensagem (idempotência)": {
+      "main": [
+        [
+          {
+            "node": "Mensagem pronta para o agente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mensagem pronta para o agente": {
+      "main": [
+        [
+          {
+            "node": "Resposta de teste (trocar pelo agente)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resposta de teste (trocar pelo agente)": {
+      "main": [
+        [
+          {
+            "node": "Saída (trocar por WhatsApp Business Cloud)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

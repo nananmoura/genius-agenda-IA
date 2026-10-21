@@ -1,0 +1,247 @@
+{
+  "name": "04 - Lembretes automáticos",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "l1",
+      "name": "A cada minuto",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT usuario, offsets_minutes FROM reminder_settings ORDER BY usuario LIMIT 1;",
+        "options": {}
+      },
+      "id": "l2",
+      "name": "Buscar usuário",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        260,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "id"
+        },
+        "returnAll": false,
+        "limit": 50,
+        "timeMin": "={{ $now.toISO() }}",
+        "timeMax": "={{ $now.plus({ hours: 25 }).toISO() }}",
+        "options": {
+          "singleEvents": true,
+          "orderBy": "startTime"
+        }
+      },
+      "id": "l3",
+      "name": "Eventos das próximas 25h",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        520,
+        -120
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const user = $('Buscar usuário').first().json;\nconst events = $input.all()\n  .map(i => i.json)\n  .filter(e => e.id && e.start && e.start.dateTime && e.status !== 'cancelled')\n  .map(e => ({ id: e.id, title: e.summary || 'Compromisso', start: e.start.dateTime }));\nreturn [{ json: { usuario: user.usuario, offsets: user.offsets_minutes, events } }];"
+      },
+      "id": "l4",
+      "name": "Montar lembretes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH ev AS (\n  SELECT e->>'id' AS event_id, e->>'title' AS title, (e->>'start')::timestamptz AS start_at\n  FROM jsonb_array_elements($2::jsonb) AS e\n), off AS (\n  SELECT unnest($3::int[]) AS offset_minutes\n), wanted AS (\n  SELECT ev.event_id, ev.title, ev.start_at, off.offset_minutes,\n         ev.start_at - make_interval(mins => off.offset_minutes) AS remind_at\n  FROM ev CROSS JOIN off\n  WHERE ev.start_at - make_interval(mins => off.offset_minutes) > now() - interval '1 minute'\n), up AS (\n  INSERT INTO reminders (usuario, calendar_event_id, event_title, event_start, offset_minutes, remind_at)\n  SELECT $1::text, event_id, title, start_at, offset_minutes, remind_at FROM wanted\n  ON CONFLICT (usuario, calendar_event_id, offset_minutes) DO UPDATE\n  SET event_title = EXCLUDED.event_title,\n      remind_at = EXCLUDED.remind_at,\n      status = CASE WHEN reminders.event_start <> EXCLUDED.event_start THEN 'pending' ELSE reminders.status END,\n      event_start = EXCLUDED.event_start,\n      updated_at = now()\n  RETURNING 1\n), canc AS (\n  UPDATE reminders SET status = 'cancelled', updated_at = now()\n  WHERE usuario = $1::text AND status = 'pending'\n    AND event_start > now() AND event_start < now() + interval '25 hours'\n    AND calendar_event_id NOT IN (SELECT event_id FROM ev)\n  RETURNING 1\n)\nSELECT 1 AS ok;",
+        "options": {
+          "queryReplacement": "={{ [$json.usuario, JSON.stringify($json.events), '{' + $json.offsets.join(',') + '}'] }}"
+        }
+      },
+      "id": "l5",
+      "name": "Sincronizar lembretes",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1040,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE reminders SET status = 'sending', attempts = attempts + 1, updated_at = now()\nWHERE id IN (\n  SELECT id FROM reminders\n  WHERE status = 'pending' AND remind_at <= now()\n  ORDER BY remind_at FOR UPDATE SKIP LOCKED LIMIT 20\n)\nRETURNING id, usuario, event_title, event_start, offset_minutes;",
+        "options": {}
+      },
+      "id": "l6",
+      "name": "Reservar vencidos",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        260,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.usuario }}",
+        "text": "={{ 'Lembrete: ' + $json.event_title + ' às ' + DateTime.fromISO($json.event_start).setZone('America/Recife').toFormat('HH:mm') + ' (' + ($json.offset_minutes >= 60 ? ($json.offset_minutes / 60) + ' h' : $json.offset_minutes + ' min') + ' antes)' }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "l7",
+      "name": "Enviar lembrete",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        520,
+        160
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE reminders SET status = 'sent', sent_at = now(), updated_at = now() WHERE id = $1::bigint;",
+        "options": {
+          "queryReplacement": "={{ [$('Reservar vencidos').item.json.id] }}"
+        }
+      },
+      "id": "l8",
+      "name": "Marcar enviado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        780,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE reminders SET status = CASE WHEN attempts >= 3 THEN 'failed' ELSE 'pending' END, last_error = $2::text, updated_at = now() WHERE id = $1::bigint;",
+        "options": {
+          "queryReplacement": "={{ [$('Reservar vencidos').item.json.id, String($json.error ?? 'falha no envio')] }}"
+        }
+      },
+      "id": "l9",
+      "name": "Devolver lembrete",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        780,
+        240
+      ]
+    }
+  ],
+  "connections": {
+    "A cada minuto": {
+      "main": [
+        [
+          {
+            "node": "Buscar usuário",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Reservar vencidos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar usuário": {
+      "main": [
+        [
+          {
+            "node": "Eventos das próximas 25h",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eventos das próximas 25h": {
+      "main": [
+        [
+          {
+            "node": "Montar lembretes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar lembretes": {
+      "main": [
+        [
+          {
+            "node": "Sincronizar lembretes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reservar vencidos": {
+      "main": [
+        [
+          {
+            "node": "Enviar lembrete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar lembrete": {
+      "main": [
+        [
+          {
+            "node": "Marcar enviado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Devolver lembrete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
