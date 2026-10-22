@@ -12,7 +12,8 @@ Assistente pessoal que gerencia compromissos no Google Agenda por linguagem natu
 | Idempotência de mensagens | Funcionando |
 | Canal de conversa | Telegram (temporário) |
 | WhatsApp (API oficial da Meta) | Pendente: o SMS de verificação da conta de desenvolvedor da Meta não chegou |
-| Briefings e cards com imagem gerada por IA | Não implementado |
+| Card visual no lembrete (template desenhado pelo n8n) | Funcionando, com fallback em texto se a imagem falhar |
+| Briefings por IA e imagens geradas por IA | Não implementado |
 
 O briefing prevê o WhatsApp como canal. Como a verificação da conta da Meta ficou bloqueada, o Telegram foi usado como alternativa gratuita, conforme a regra de alternativas documentadas. A entrada no formato do webhook da Meta está pronta em `workflows/01_entrada_whatsapp.json`, e a troca de canal fica restrita aos nós de entrada e de saída.
 
@@ -32,7 +33,7 @@ flowchart LR
 ```
 
 - **Agente (`workflows/02_agente_telegram.json`)**: recebe a mensagem, registra o ID para evitar duplicidade, passa o texto ao agente de IA e responde. O agente usa quatro ferramentas do Google Agenda e só confirma uma ação depois do retorno da API. Em caso de falha, o usuário recebe um aviso de que o resultado não foi confirmado.
-- **Lembretes (`workflows/04_lembretes.json`)**: a cada minuto sincroniza os eventos das próximas 25 horas com a tabela `reminders`, cancela lembretes de eventos removidos, atualiza os de eventos que mudaram de horário e envia os que venceram. Os lembretes não dependem de o usuário enviar mensagem.
+- **Lembretes (`workflows/04_lembretes.json`)**: a cada minuto sincroniza os eventos das próximas 25 horas com a tabela `reminders`, cancela lembretes de eventos removidos, atualiza os de eventos que mudaram de horário e envia os que venceram. Os lembretes não dependem de o usuário enviar mensagem. Cada lembrete sai como um card de imagem (fundo, título do evento e horário, desenhados pelo nó Edit Image) com legenda em texto; se a imagem falhar, o lembrete é enviado só em texto.
 - **Prompt do agente**: `prompts/agente_sistema.md`.
 
 ## Estrutura
@@ -85,7 +86,7 @@ Cobrem: mensagem duplicada, criação de lembretes sem horários no passado, sin
 | Mesmo webhook duas vezes | Tabela `processed_messages` com chave única (teste automatizado) |
 | Agenda do mês | O agente consulta eventos reais por período |
 | Evento muda de horário | O lembrete é atualizado e volta a pendente (teste automatizado) |
-| Falha na geração da imagem | Não se aplica: briefings com imagem não foram implementados |
+| Falha na geração da imagem | O ramo de erro envia o lembrete em texto, sem perder o aviso |
 
 ## Segurança
 
@@ -102,4 +103,5 @@ Cobrem: mensagem duplicada, criação de lembretes sem horários no passado, sin
 - Eventos de dia inteiro não geram lembretes.
 - O modelo gratuito do Gemini pode retornar erro 503 em picos de demanda, e o agente tenta de novo automaticamente.
 - Sem testes de ponta a ponta com o Telegram e o Google Agenda reais.
-- Melhorias: troca para o WhatsApp, detecção de conflitos e sugestões de reagendamento, briefings e cards visuais com imagem gerada por IA, suporte a vários usuários.
+- O card usa um template fixo, sem imagem gerada por IA, e depende de fontes instaladas no container do n8n.
+- Melhorias: troca para o WhatsApp, detecção de conflitos e sugestões de reagendamento, briefings personalizados e fundos de card gerados por IA, suporte a vários usuários.

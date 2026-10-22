@@ -12,13 +12,13 @@
           ]
         }
       },
-      "id": "l1",
+      "id": "8fd6a307-0710-472b-ba8d-8701db95c3ec",
       "name": "A cada minuto",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
         0,
-        0
+        128
       ]
     },
     {
@@ -27,53 +27,62 @@
         "query": "SELECT usuario, offsets_minutes FROM reminder_settings ORDER BY usuario LIMIT 1;",
         "options": {}
       },
-      "id": "l2",
+      "id": "5e87a94a-6120-4e98-aa38-65a521a1a555",
       "name": "Buscar usuário",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        260,
-        -120
-      ]
+        272,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "LxvB00gCkTr5iBNv",
+          "name": "Postgres account"
+        }
+      }
     },
     {
       "parameters": {
         "operation": "getAll",
         "calendar": {
           "__rl": true,
-          "value": "primary",
+          "value": "geniusteste32@gmail.com",
           "mode": "id"
         },
-        "returnAll": false,
-        "limit": 50,
         "timeMin": "={{ $now.toISO() }}",
         "timeMax": "={{ $now.plus({ hours: 25 }).toISO() }}",
         "options": {
-          "singleEvents": true,
           "orderBy": "startTime"
         }
       },
-      "id": "l3",
+      "id": "b79de658-7df9-4f82-b0e9-f9d333787708",
       "name": "Eventos das próximas 25h",
       "type": "n8n-nodes-base.googleCalendar",
       "typeVersion": 1.3,
       "position": [
-        520,
-        -120
+        528,
+        0
       ],
-      "alwaysOutputData": true
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "YHZzxXlXczmNJI0S",
+          "name": "Google Calendar account"
+        }
+      }
     },
     {
       "parameters": {
         "jsCode": "const user = $('Buscar usuário').first().json;\nconst events = $input.all()\n  .map(i => i.json)\n  .filter(e => e.id && e.start && e.start.dateTime && e.status !== 'cancelled')\n  .map(e => ({ id: e.id, title: e.summary || 'Compromisso', start: e.start.dateTime }));\nreturn [{ json: { usuario: user.usuario, offsets: user.offsets_minutes, events } }];"
       },
-      "id": "l4",
+      "id": "38f85356-9c99-4681-92df-5e6b905efbd7",
       "name": "Montar lembretes",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        780,
-        -120
+        784,
+        0
       ]
     },
     {
@@ -84,14 +93,20 @@
           "queryReplacement": "={{ [$json.usuario, JSON.stringify($json.events), '{' + $json.offsets.join(',') + '}'] }}"
         }
       },
-      "id": "l5",
+      "id": "5796009a-7eb5-4883-b89a-720e99d7df17",
       "name": "Sincronizar lembretes",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
         1040,
-        -120
-      ]
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "LxvB00gCkTr5iBNv",
+          "name": "Postgres account"
+        }
+      }
     },
     {
       "parameters": {
@@ -99,32 +114,20 @@
         "query": "UPDATE reminders SET status = 'sending', attempts = attempts + 1, updated_at = now()\nWHERE id IN (\n  SELECT id FROM reminders\n  WHERE status = 'pending' AND remind_at <= now()\n  ORDER BY remind_at FOR UPDATE SKIP LOCKED LIMIT 20\n)\nRETURNING id, usuario, event_title, event_start, offset_minutes;",
         "options": {}
       },
-      "id": "l6",
+      "id": "aba2712a-023a-4255-a487-25e0f4177fa7",
       "name": "Reservar vencidos",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        260,
-        160
-      ]
-    },
-    {
-      "parameters": {
-        "chatId": "={{ $json.usuario }}",
-        "text": "={{ 'Lembrete: ' + $json.event_title + ' às ' + DateTime.fromISO($json.event_start).setZone('America/Recife').toFormat('HH:mm') + ' (' + ($json.offset_minutes >= 60 ? ($json.offset_minutes / 60) + ' h' : $json.offset_minutes + ' min') + ' antes)' }}",
-        "additionalFields": {
-          "appendAttribution": false
-        }
-      },
-      "id": "l7",
-      "name": "Enviar lembrete",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
-      "position": [
-        520,
-        160
+        272,
+        288
       ],
-      "onError": "continueErrorOutput"
+      "credentials": {
+        "postgres": {
+          "id": "LxvB00gCkTr5iBNv",
+          "name": "Postgres account"
+        }
+      }
     },
     {
       "parameters": {
@@ -134,14 +137,20 @@
           "queryReplacement": "={{ [$('Reservar vencidos').item.json.id] }}"
         }
       },
-      "id": "l8",
+      "id": "9af206ba-3cbd-40d3-a406-4f6b64c1bd5e",
       "name": "Marcar enviado",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        780,
-        100
-      ]
+        1312,
+        192
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "LxvB00gCkTr5iBNv",
+          "name": "Postgres account"
+        }
+      }
     },
     {
       "parameters": {
@@ -151,16 +160,129 @@
           "queryReplacement": "={{ [$('Reservar vencidos').item.json.id, String($json.error ?? 'falha no envio')] }}"
         }
       },
-      "id": "l9",
+      "id": "a2293c55-5473-4d71-be3e-4dcc7239c73e",
       "name": "Devolver lembrete",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        780,
-        240
-      ]
+        1312,
+        432
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "LxvB00gCkTr5iBNv",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "multiStep",
+        "operations": {
+          "operations": [
+            {
+              "operation": "create",
+              "backgroundColor": "#0f172a",
+              "width": 800,
+              "height": 420
+            },
+            {
+              "operation": "text",
+              "text": "LEMBRETE",
+              "fontSize": 30,
+              "fontColor": "#38bdf8",
+              "positionY": 80,
+              "lineLength": 40,
+              "font": "/usr/share/fonts/truetype/msttcorefonts/Verdana.ttf"
+            },
+            {
+              "operation": "text",
+              "text": "={{ $json.event_title }}",
+              "fontSize": 56,
+              "fontColor": "#ffffff",
+              "positionY": 200,
+              "lineLength": 24,
+              "font": "/usr/share/fonts/truetype/msttcorefonts/Verdana.ttf"
+            },
+            {
+              "operation": "text",
+              "text": "={{ DateTime.fromISO($json.event_start).setZone('America/Recife').toFormat('HH:mm') + ' - em ' + ($json.offset_minutes >= 60 ? ($json.offset_minutes / 60) + ' h' : $json.offset_minutes + ' min') }}",
+              "fontSize": 36,
+              "fontColor": "#cbd5e1",
+              "positionY": 340,
+              "lineLength": 40,
+              "font": "/usr/share/fonts/truetype/msttcorefonts/Verdana.ttf"
+            }
+          ]
+        },
+        "options": {
+          "fileName": "lembrete.png",
+          "format": "png"
+        }
+      },
+      "id": "1a8bdc30-cc17-407b-80a0-106637c1162a",
+      "name": "Montar card",
+      "type": "n8n-nodes-base.editImage",
+      "typeVersion": 1,
+      "position": [
+        528,
+        288
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "sendPhoto",
+        "chatId": "={{ $('Reservar vencidos').item.json.usuario }}",
+        "binaryData": true,
+        "additionalFields": {
+          "caption": "={{ 'Lembrete: ' + $('Reservar vencidos').item.json.event_title + ' às ' + DateTime.fromISO($('Reservar vencidos').item.json.event_start).setZone('America/Recife').toFormat('HH:mm') + ' (' + ($('Reservar vencidos').item.json.offset_minutes >= 60 ? ($('Reservar vencidos').item.json.offset_minutes / 60) + ' h' : $('Reservar vencidos').item.json.offset_minutes + ' min') + ' antes)' }}"
+        }
+      },
+      "id": "ea4699ff-e94c-4226-bcb6-c1380a87db8e",
+      "name": "Enviar card",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        800,
+        192
+      ],
+      "webhookId": "d803599d-7929-4ea2-b7dd-841d95e9d206",
+      "credentials": {
+        "telegramApi": {
+          "id": "lZpQIZp8UWAimFmp",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Reservar vencidos').item.json.usuario }}",
+        "text": "={{ 'Lembrete: ' + $('Reservar vencidos').item.json.event_title + ' às ' + DateTime.fromISO($('Reservar vencidos').item.json.event_start).setZone('America/Recife').toFormat('HH:mm') + ' (' + ($('Reservar vencidos').item.json.offset_minutes >= 60 ? ($('Reservar vencidos').item.json.offset_minutes / 60) + ' h' : $('Reservar vencidos').item.json.offset_minutes + ' min') + ' antes)' }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "f10654de-3cf9-42a2-a2f5-05d2c428c55e",
+      "name": "Enviar lembrete em texto",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1040,
+        432
+      ],
+      "webhookId": "3a8461a1-8c14-4c59-a01a-29180894b442",
+      "credentials": {
+        "telegramApi": {
+          "id": "lZpQIZp8UWAimFmp",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput"
     }
   ],
+  "pinData": {},
   "connections": {
     "A cada minuto": {
       "main": [
@@ -215,14 +337,50 @@
       "main": [
         [
           {
-            "node": "Enviar lembrete",
+            "node": "Montar card",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Enviar lembrete": {
+    "Montar card": {
+      "main": [
+        [
+          {
+            "node": "Enviar card",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar lembrete em texto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar card": {
+      "main": [
+        [
+          {
+            "node": "Marcar enviado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar lembrete em texto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar lembrete em texto": {
       "main": [
         [
           {
@@ -241,7 +399,16 @@
       ]
     }
   },
+  "active": true,
   "settings": {
-    "executionOrder": "v1"
-  }
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "ad39fb7a-c7e1-4393-8f85-29dcb1660e82",
+  "meta": {
+    "instanceId": "45628ac4943e312bad501b676b7fd1b65876c20c68d48bf246f4dbb0d78f5487"
+  },
+  "nodeGroups": [],
+  "id": "s9hGz6nzFkkYV6Kc",
+  "tags": []
 }
